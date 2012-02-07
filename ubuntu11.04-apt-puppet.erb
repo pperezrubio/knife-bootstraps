@@ -1,0 +1,60 @@
+bash -c '
+<%= "export http_proxy=\"#{knife_config[:bootstrap_proxy]}\"" if knife_config[:bootstrap_proxy] -%>
+
+# Set hostname
+<% if @config[:chef_node_name] %>
+<%
+@fqdn = @config[:chef_node_name]
+@hostname = @config[:chef_node_name].split(".").first
+%>
+
+# if [ ! `grep -qx "127.0.1.1 <%= @config[:chef_node_name] %>" /etc/hosts` ]; then
+sed -i "/127.0.0.1/a127.0.1.1 <%= @fqdn %> <%= @hostname %>" /etc/hosts
+# fi
+echo <%= @hostname %> > /etc/hostname
+hostname <%= @hostname %>
+<% end -%>
+
+if [ ! -f /usr/bin/puppet ]; then
+  apt-get -y install puppet
+fi
+
+(
+cat <<'EOP'
+# Defaults for puppet - sourced by /etc/init.d/puppet
+
+# Start puppet on boot?
+START=yes
+
+# Startup options
+DAEMON_OPTS=""
+EOP
+) > /etc/default/puppet
+
+<% if knife_config[:puppet_server] -%>
+[ ! -d /etc/puppet ] && mkdir /etc/puppet
+(
+cat <<'EOP'
+[main]
+logdir=/var/log/puppet
+vardir=/var/lib/puppet
+ssldir=/var/lib/puppet/ssl
+rundir=/var/run/puppet
+factpath=$vardir/lib/facter
+templatedir=$confdir/templates
+prerun_command=/etc/puppet/etckeeper-commit-pre
+postrun_command=/etc/puppet/etckeeper-commit-post
+server=<%= knife_config[:puppet_server] %>
+pluginsync=true
+
+[master]
+# These are needed when the puppetmaster is run by passenger
+# and can safely be removed if webrick is used.
+ssl_client_header = SSL_CLIENT_S_DN 
+ssl_client_verify_header = SSL_CLIENT_VERIFY
+EOP
+) > /etc/puppet/puppet.conf
+<% end -%>
+
+/etc/init.d/puppet restart
+'
